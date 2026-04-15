@@ -226,7 +226,7 @@ Two containers run `cpu_hog 30` (a 30-second CPU spin loop) simultaneously. The 
 
 | Container | nice | Observed wall-clock | CPU share |
 |-----------|------|---------------------|-----------|
-| `hi`      | -5   | ~30 s               | ~73%      |
+| `hi`      | -5   | ~30 s               | ~72%      |
 | `lo`      | +10  | ~94 s               | ~27%      |
 
 The `hi` container completed approximately 3× faster, consistent with the CFS weight ratio. The `lo` container still made forward progress because CFS guarantees every runnable task gets CPU time eventually (no starvation).
