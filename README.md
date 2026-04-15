@@ -311,3 +311,177 @@ This demonstrates CFS's "sleeper fairness" property: tasks that voluntarily slee
 | `Makefile` | Builds all targets with a single `make` |
 | `environment-check.sh` | VM preflight check (run before building) |
 
+
+
+1. Isolation Mechanisms
+
+Container isolation in our system is achieved using Linux namespaces, which provide logical separation of resources while still sharing the same kernel.
+
+We used the following namespaces:
+	•	PID Namespace:
+Each container has its own process ID space. Processes inside the container see themselves starting from PID 1, while the host sees real PIDs.
+This ensures process-level isolation.
+	•	UTS Namespace:
+Allows each container to have its own hostname.
+Useful for identity separation between containers.
+	•	Mount Namespace:
+Provides each container with its own filesystem view.
+Combined with chroot() or pivot_root(), this ensures filesystem isolation.
+
+chroot vs pivot_root
+	•	chroot() changes the root directory of a process but is less secure because escape is possible.
+	•	pivot_root() is stronger and completely switches the root filesystem.
+
+In our system, we used chroot/pivot_root to restrict filesystem visibility, ensuring containers cannot access host files.
+
+What is still shared?
+
+Despite isolation:
+	•	The Linux kernel is shared
+	•	Hardware resources (CPU, memory) are shared
+	•	Kernel subsystems like scheduler are global
+
+This makes containers lightweight compared to virtual machines but requires careful control (like our memory monitor).
+
+2. Supervisor Lifecycle
+
+The supervisor (engine.c) acts as the central controller of all containers.
+
+Process Creation
+	•	Containers are created using fork() + clone() with namespace flags.
+	•	Each container runs as a child process of the supervisor.
+
+Why a Long-Running Parent?
+	•	The supervisor:
+	•	Tracks all containers
+	•	Manages lifecycle
+	•	Handles cleanup
+	•	Without it → orphan/zombie processes would accumulate
+
+Reaping (Zombie Handling)
+	•	We use waitpid() to collect exit statuses.
+	•	Ensures no zombie processes remain.
+
+Signal Delivery
+	•	Supervisor sends signals like:
+	•	SIGTERM → graceful stop
+	•	SIGKILL → forced termination
+	•	Kernel module may also trigger termination on hard-limit breach.
+
+This design ensures centralized control and clean lifecycle management.
+
+3. IPC & Synchronization
+
+We used two IPC mechanisms:
+
+1. Pipes / Message Channels
+	•	Used for communication between:
+	•	CLI → Supervisor
+	•	Supervisor → Containers
+Enables command-based control.
+
+2. Shared Buffer (Bounded Buffer)
+	•	Used for logging system
+	•	Implements producer-consumer model:
+	•	Producers → container processes writing logs
+	•	Consumer → logging thread writing to files
+
+Bounded Buffer Design
+	•	Fixed-size circular queue
+	•	Prevents overflow and uncontrolled memory usage
+
+Race Conditions Faced
+	•	Multiple containers writing logs simultaneously
+	•	Buffer overwriting or inconsistent reads
+
+Solution
+We used:
+	•	Mutex locks → for mutual exclusion
+	•	Condition variables / semaphores → for synchronization
+
+Ensures:
+	•	No data corruption
+	•	Proper ordering
+	•	Efficient blocking instead of busy waiting
+4. Memory Management
+
+Memory control is handled using a kernel module (monitor.c).
+
+What is RSS?
+	•	Resident Set Size (RSS) = actual physical memory used by a process
+	•	Does not include swapped-out memory
+
+ RSS is used because it reflects real memory pressure on the system
+
+Soft Limit vs Hard Limit
+Soft Limit
+	•	When exceeded:
+	•	Warning is triggered (via dmesg or logs)
+	•	Process is allowed to continue
+
+Purpose:
+	•	Early warning
+	•	Debugging and monitoring
+
+Hard Limit
+	•	When exceeded:
+	•	Process is immediately killed
+
+Purpose:
+	•	Strict enforcement
+	•	Prevents system instability
+
+Why Kernel-Level Enforcement?
+
+User-space cannot reliably enforce memory limits because:
+	•	Processes can ignore signals
+	•	Race conditions can occur
+	•	No direct access to memory accounting
+
+Kernel module ensures:
+	•	Accurate tracking
+	•	Immediate action
+	•	System-wide enforcement
+
+
+5. Scheduling
+
+We evaluated how different workloads behave under Linux scheduling.
+
+Workloads Used
+	•	CPU-bound program (CPU hog)
+	•	Memory-intensive program (memory leaker)
+
+Observed Concepts
+
+Fairness
+	•	Linux scheduler distributes CPU time across processes
+	•	CPU hog does not completely starve others
+
+Responsiveness
+	•	Short tasks get CPU quickly
+	•	Interactive processes are prioritized
+
+Throughput
+	•	System maximizes total completed work
+	•	Tradeoff between fairness and efficiency
+
+Key Insight
+	•	Scheduler dynamically balances:
+	•	CPU allocation
+	•	Task priority
+	•	System load
+
+Our experiments showed that:
+	•	CPU-heavy workloads get throttled when multiple processes run
+	•	Memory-heavy workloads trigger kernel-level enforcement
+
+Conclusion
+This system demonstrates how:
+	•	Namespaces provide isolation
+	•	Supervisor ensures lifecycle control
+	•	IPC enables coordination
+	•	Kernel module enforces safety
+	•	Scheduler balances performance
+
+Together, these components mimic core operating system principles in a container runtime environment.
