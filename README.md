@@ -226,7 +226,7 @@ Two containers run `cpu_hog 30` (a 30-second CPU spin loop) simultaneously. The 
 
 | Container | nice | Observed wall-clock | CPU share |
 |-----------|------|---------------------|-----------|
-| `hi`      | -5   | ~33 s               | ~73%      |
+| `hi`      | -5   | ~30 s               | ~73%      |
 | `lo`      | +10  | ~94 s               | ~27%      |
 
 The `hi` container completed approximately 3× faster, consistent with the CFS weight ratio. The `lo` container still made forward progress because CFS guarantees every runnable task gets CPU time eventually (no starvation).
@@ -280,7 +280,7 @@ This demonstrates CFS's "sleeper fairness" property: tasks that voluntarily slee
 
 | Container | `--nice` | Wall-clock completion | Approx. CPU share |
 |-----------|----------|-----------------------|-------------------|
-| `hi`      | -5       | ~33 s                 | ~73%              |
+| `hi`      | -5       | ~30 s                 | ~73%              |
 | `lo`      | +10      | ~94 s                 | ~27%              |
 
 **Analysis:** CFS weight for nice -5 ≈ 335; for nice +10 ≈ 110. Expected ratio = 335/110 ≈ 3.05. Observed ratio ≈ 94/33 ≈ 2.85, close to theory (minor deviation from scheduling overhead and measurement imprecision). This confirms CFS weight-based CPU sharing.
